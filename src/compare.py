@@ -1,18 +1,13 @@
-import sqlite3
+import psycopg2
 import os
+import sys
 from tabulate import tabulate
-
-# ---------- Paths ----------
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-DATA_DIR = os.path.abspath(DATA_DIR)
-
-PROD_DB = os.path.join(DATA_DIR, "prod.db")
-STAGING_DB = os.path.join(DATA_DIR, "staging.db")
+from db_config import get_prod_config, get_staging_config
 
 
-# ---------- Connect to databases ----------
-def connect(db_path):
-    return sqlite3.connect(db_path)
+def connect(config):
+    """Create a database connection using the provided config"""
+    return psycopg2.connect(**config)
 
 
 # ---------- Get all orders ----------
@@ -25,8 +20,8 @@ def get_all_orders(conn):
 
 # ---------- Compare databases ----------
 def compare_databases():
-    prod_conn = connect(PROD_DB)
-    staging_conn = connect(STAGING_DB)
+    prod_conn = connect(get_prod_config())
+    staging_conn = connect(get_staging_config())
     
     prod_orders = get_all_orders(prod_conn)
     staging_orders = get_all_orders(staging_conn)
@@ -73,7 +68,7 @@ def generate_report():
     print()
     
     # Summary statistics
-    print("📊 SUMMARY STATISTICS")
+    print("?? SUMMARY STATISTICS")
     print("-" * 80)
     print(f"Production DB - Total Records: {results['prod_total']}")
     print(f"Staging DB - Total Records: {results['staging_total']}")
@@ -81,21 +76,8 @@ def generate_report():
     print(f"Modified Records: {len(results['modified_rows'])} records ({len(results['modified_rows']) / results['prod_total'] * 100:.1f}%)")
     print()
     
-    # Missing rows
-    print("❌ MISSING ROWS (in Production but not in Staging)")
-    print("-" * 80)
-    if results['missing_rows']:
-        table_data = []
-        for row in results['missing_rows']:
-            table_data.append([row[0], row[1], row[2], row[3], row[4]])
-        print(tabulate(table_data, headers=['Order ID', 'Customer', 'Amount', 'Country', 'Date'], tablefmt='grid'))
-        print(f"Total Missing: {len(results['missing_rows'])}")
-    else:
-        print("✅ No missing rows")
-    print()
-    
     # Modified rows
-    print("⚠️  MODIFIED ROWS (data differences between Production and Staging)")
+    print("?  MODIFIED ROWS (data differences between Production and Staging)")
     print("-" * 80)
     if results['modified_rows']:
         for item in results['modified_rows']:
@@ -104,30 +86,30 @@ def generate_report():
             staging = item['staging_data']
             
             print(f"Order ID: {order_id}")
-            print(f"  Production:  {prod[1]} | ${prod[2]} | {prod[3]} | {prod[4]}")
-            print(f"  Staging:     {staging[1]} | ${staging[2]} | {staging[3]} | {staging[4]}")
+            print(f"  Production:  {prod[1]} |  | {prod[3]} | {prod[4]}")
+            print(f"  Staging:     {staging[1]} |  | {staging[3]} | {staging[4]}")
             
             # Highlight which fields changed
             changes = []
             if prod[1] != staging[1]:
-                changes.append(f"Customer: '{prod[1]}' → '{staging[1]}'")
+                changes.append(f"Customer: '{prod[1]}' ? '{staging[1]}'")
             if prod[2] != staging[2]:
-                changes.append(f"Amount: ${prod[2]} → ${staging[2]}")
+                changes.append(f"Amount:  ? ")
             if prod[3] != staging[3]:
-                changes.append(f"Country: '{prod[3]}' → '{staging[3]}'")
+                changes.append(f"Country: '{prod[3]}' ? '{staging[3]}'")
             if prod[4] != staging[4]:
-                changes.append(f"Date: '{prod[4]}' → '{staging[4]}'")
+                changes.append(f"Date: '{prod[4]}' ? '{staging[4]}'")
             
             if changes:
                 print(f"  Changes: {', '.join(changes)}")
             print()
         print(f"Total Modified: {len(results['modified_rows'])}")
     else:
-        print("✅ No modified rows")
+        print("? No modified rows")
     print()
     
     # Data Quality Score
-    print("📈 DATA QUALITY SCORE")
+    print("?? DATA QUALITY SCORE")
     print("-" * 80)
     quality_score = ((results['prod_total'] - len(results['missing_rows']) - len(results['modified_rows'])) / results['prod_total']) * 100
     print(f"Quality Score: {quality_score:.1f}%")

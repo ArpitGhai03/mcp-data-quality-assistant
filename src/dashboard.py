@@ -277,6 +277,68 @@ def page_detailed_comparison():
                     st.write(f"- {field}: {values['prod']} → {values['staging']}")
 
 
+# Define available tools with descriptions
+AVAILABLE_TOOLS_INFO = {
+    "get_missing_rows": {
+        "description": "Get all rows that exist in Production DB but are missing in Staging DB",
+        "function": get_missing_rows,
+        "params": []
+    },
+    "get_mismatched_rows": {
+        "description": "Get all rows with data differences between Production and Staging databases",
+        "function": get_mismatched_rows,
+        "params": []
+    },
+    "get_quality_score": {
+        "description": "Get overall data quality score and metrics comparing the databases",
+        "function": get_quality_score,
+        "params": []
+    },
+    "run_full_comparison": {
+        "description": "Run a full comparison between Production and Staging databases",
+        "function": run_full_comparison,
+        "params": []
+    },
+    "export_report": {
+        "description": "Export the comparison report to a JSON file",
+        "function": export_report,
+        "params": ["output_file"]
+    }
+}
+
+
+def parse_tool_call(response_text: str):
+    """Parse tool calls from LLM response."""
+    tool_name = None
+    explanation = ""
+    
+    for line in response_text.split('\n'):
+        line = line.strip()
+        
+        # Check for tool call patterns
+        if "TOOL:" in line:
+            try:
+                tool_name = line.split("TOOL:")[1].strip().split()[0].lower()
+            except:
+                pass
+        
+        if "EXPLANATION:" in line:
+            try:
+                explanation = line.split("EXPLANATION:")[1].strip()
+            except:
+                pass
+    
+    return tool_name, explanation
+
+
+def get_tools_description():
+    """Generate formatted tool descriptions for the system prompt."""
+    description = "Available Tools:\n"
+    for name, info in AVAILABLE_TOOLS_INFO.items():
+        description += f"- {name}: {info['description']}\n"
+    return description
+
+
 def page_ai_assistant():
     """Page 3: AI Assistant Panel"""
     st.title("🤖 AI Assistant Analysis")
@@ -289,70 +351,112 @@ def page_ai_assistant():
     4. Provide insights and explanations
     """)
     
+    # Display available tools
+    with st.expander("📋 Available Tools", expanded=False):
+        for tool_name, info in AVAILABLE_TOOLS_INFO.items():
+            st.write(f"**{tool_name}**: {info['description']}")
+    
     st.divider()
     
     # Input section
     st.subheader("📝 Ask a Question")
     
     # Quick templates
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     quick_queries = [
         "What is the data quality score?",
         "Show me missing rows",
-        "What data is different?"
+        "What data is different?",
+        "What tools are available?"
     ]
-    
-    selected_query = None
     
     with col1:
         if st.button("🎯 Quality Score"):
-            selected_query = quick_queries[0]
+            st.session_state.user_query = quick_queries[0]
+            st.rerun()
     
     with col2:
         if st.button("📍 Missing Rows"):
-            selected_query = quick_queries[1]
+            st.session_state.user_query = quick_queries[1]
+            st.rerun()
     
     with col3:
-        if st.button("🔄 Data Differences"):
-            selected_query = quick_queries[2]
+        if st.button("🔄 Differences"):
+            st.session_state.user_query = quick_queries[2]
+            st.rerun()
+    
+    with col4:
+        if st.button("🛠️ Tools"):
+            st.session_state.user_query = quick_queries[3]
+            st.rerun()
     
     st.write("**OR**")
     
-    # Custom query input
-    user_query = st.text_area(
-        "Enter your question:",
-        value=selected_query or "",
-        placeholder="e.g., Why are we missing data? What's the quality score?",
-        height=80
-    )
+    # Initialize session state for query
+    if 'user_query' not in st.session_state:
+        st.session_state.user_query = ""
     
-    col1, col2 = st.columns([3, 1])
+    # Use form for Enter key support
+    with st.form("query_form"):
+        user_query = st.text_area(
+            "Enter your question:",
+            value=st.session_state.user_query,
+            placeholder="e.g., What's our data quality? Show missing records? What tools do you have?",
+            height=80,
+            key="query_input"
+        )
+        
+        analyze_button = st.form_submit_button("🔍 Analyze", use_container_width=True)
     
-    with col2:
-        analyze_button = st.button("🔍 Analyze", use_container_width=True)
+    # Update session state when form is submitted
+    if analyze_button:
+        st.session_state.user_query = user_query
     
     if analyze_button and user_query:
         st.divider()
         
-        with st.spinner("🤖 Ollama is thinking..."):
+        # Check if user is asking about available tools
+        if "tools" in user_query.lower() or "what can" in user_query.lower():
+            st.subheader("🛠️ Available Tools")
+            
+            tool_list = pd.DataFrame([
+                {"Tool Name": name, "Description": info["description"]}
+                for name, info in AVAILABLE_TOOLS_INFO.items()
+            ])
+            st.dataframe(tool_list, use_container_width=True, hide_index=True)
+            
+            st.divider()
+            
+            st.success("""
+            ✅ **Available Tools:**
+            1. **get_quality_score** - Get overall data quality metrics and statistics
+            2. **get_missing_rows** - Find rows missing in staging database
+            3. **get_mismatched_rows** - Find rows with data differences
+            4. **run_full_comparison** - Run complete database comparison
+            5. **export_report** - Export results to JSON file
+            
+            Try asking about any of these!
+            """)
+            
+            return
+        
+        with st.spinner("🤖 Ollama is analyzing..."):
             try:
                 client = Client(host=OLLAMA_BASE_URL)
                 
-                # System prompt
-                system_prompt = """You are a database quality analysis expert.
-You have access to these analysis tools:
-- get_quality_score: Get overall data quality metrics
-- get_missing_rows: Find rows missing in staging
-- get_mismatched_rows: Find rows with data differences
-- run_full_comparison: Run complete analysis
-- export_report: Export report to JSON
+                # Enhanced system prompt with clear tool definitions
+                tools_description = get_tools_description()
+                system_prompt = f"""You are a database quality analysis expert with access to specific tools.
 
-Analyze the user query and respond with:
+{tools_description}
+
+When the user asks a question, determine which tool would best answer it.
+Respond EXACTLY in this format:
 TOOL: <tool_name>
-EXPLANATION: <brief explanation of what this tool will do>
+EXPLANATION: <brief explanation of why this tool answers the question>
 
-Then wait for the results."""
+Choose the most appropriate tool. If unsure, use 'run_full_comparison'."""
                 
                 # Get Ollama recommendation
                 response = client.generate(
@@ -363,22 +467,7 @@ Then wait for the results."""
                 )
                 
                 response_text = response['response']
-                
-                # Parse tool recommendation
-                tool_name = None
-                explanation = ""
-                
-                for line in response_text.split('\n'):
-                    if "TOOL:" in line:
-                        try:
-                            tool_name = line.split("TOOL:")[1].strip().split()[0]
-                        except:
-                            pass
-                    if "EXPLANATION:" in line:
-                        try:
-                            explanation = line.split("EXPLANATION:")[1].strip()
-                        except:
-                            pass
+                tool_name, explanation = parse_tool_call(response_text)
                 
                 # Display Ollama's recommendation
                 st.subheader("🔍 Analysis Plan")
@@ -386,102 +475,96 @@ Then wait for the results."""
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.info(f"**Tool Selected:** {tool_name or 'Not found'}")
+                    st.info(f"**Tool Selected:** {tool_name or 'get_quality_score'}")
                 
                 with col2:
-                    st.info(f"**Approach:** {explanation or 'Will execute tool'}")
+                    st.info(f"**Approach:** {explanation or 'Analyzing database quality'}")
                 
                 st.divider()
                 
-                # Execute tool if found
-                if tool_name:
-                    available_tools = {
-                        'get_quality_score': get_quality_score,
-                        'get_missing_rows': get_missing_rows,
-                        'mismatched_rows': get_mismatched_rows,
-                        'get_mismatched_rows': get_mismatched_rows,
-                        'run_full_comparison': run_full_comparison,
-                        'export_report': export_report
-                    }
+                # Use recommended tool or fallback
+                tool_name = tool_name or 'get_quality_score'
+                
+                # Execute tool if valid
+                if tool_name in AVAILABLE_TOOLS_INFO:
+                    st.subheader("⚙️ Executing Tool...")
                     
-                    tool_func = available_tools.get(tool_name)
-                    
-                    if tool_func:
-                        st.subheader("⚙️ Executing Tool...")
-                        
-                        with st.spinner(f"Executing {tool_name}..."):
-                            try:
-                                if tool_name == 'export_report':
-                                    result = tool_func()
+                    with st.spinner(f"Executing {tool_name}..."):
+                        try:
+                            tool_func = AVAILABLE_TOOLS_INFO[tool_name]['function']
+                            result = tool_func()
+                            
+                            st.success("✅ Tool executed successfully!")
+                            
+                            st.subheader("📊 Results")
+                            
+                            # Display results nicely
+                            if isinstance(result, dict):
+                                # Show key metrics
+                                metrics_cols = st.columns(4)
+                                metric_count = 0
+                                
+                                if 'quality_score' in result:
+                                    with metrics_cols[metric_count % 4]:
+                                        st.metric("Quality Score", f"{result['quality_score']}%")
+                                    metric_count += 1
+                                
+                                if 'count' in result:
+                                    with metrics_cols[metric_count % 4]:
+                                        st.metric("Count", result['count'])
+                                    metric_count += 1
+                                
+                                if 'percentage' in result:
+                                    with metrics_cols[metric_count % 4]:
+                                        st.metric("Percentage", f"{result['percentage']}%")
+                                    metric_count += 1
+                                
+                                if 'missing_count' in result:
+                                    with metrics_cols[metric_count % 4]:
+                                        st.metric("Missing", result['missing_count'])
+                                
+                                # Show detailed data
+                                st.subheader("📋 Detailed Data")
+                                
+                                if 'rows' in result and result['rows'] and len(result['rows']) > 0:
+                                    df = pd.DataFrame(result['rows'])
+                                    st.dataframe(df, use_container_width=True, hide_index=True)
                                 else:
-                                    result = tool_func()
+                                    # Show as JSON for complex results
+                                    st.json(result)
+                            
+                            st.divider()
+                            
+                            # Get Ollama's explanation
+                            st.subheader("💡 AI Explanation")
+                            
+                            with st.spinner("Ollama is generating explanation..."):
+                                explanation_prompt = f"""Based on this database analysis result, provide a brief, 
+                                non-technical explanation of what it means and what actions might be needed.
                                 
-                                st.success("✅ Tool executed successfully!")
-                                
-                                st.subheader("📊 Results")
-                                
-                                # Display results nicely
-                                if isinstance(result, dict):
-                                    # Show key metrics
-                                    metrics_cols = st.columns(4)
-                                    
-                                    if 'quality_score' in result:
-                                        with metrics_cols[0]:
-                                            st.metric("Quality Score", f"{result['quality_score']}%")
-                                    
-                                    if 'count' in result:
-                                        with metrics_cols[1]:
-                                            st.metric("Count", result['count'])
-                                    
-                                    if 'percentage' in result:
-                                        with metrics_cols[2]:
-                                            st.metric("Percentage", f"{result['percentage']}%")
-                                    
-                                    if 'missing_count' in result:
-                                        with metrics_cols[3]:
-                                            st.metric("Missing", result['missing_count'])
-                                    
-                                    # Show detailed data
-                                    st.subheader("📋 Detailed Data")
-                                    
-                                    if 'rows' in result and result['rows']:
-                                        df = pd.DataFrame(result['rows'])
-                                        st.dataframe(df, use_container_width=True, hide_index=True)
-                                    else:
-                                        # Show as JSON for complex results
-                                        st.json(result)
-                                
-                                st.divider()
-                                
-                                # Get Ollama's explanation
-                                st.subheader("💡 AI Explanation")
-                                
-                                with st.spinner("Ollama is generating explanation..."):
-                                    explanation_prompt = f"""Based on this database analysis result, provide a brief, 
-                                    non-technical explanation of what it means and what actions might be needed.
-                                    
-Result:
-{json.dumps(result, indent=2)[:500]}
+Result Summary:
+{json.dumps(result, indent=2)[:800]}
 
-Keep it to 2-3 sentences maximum."""
-                                    
-                                    explanation_response = client.generate(
-                                        model=MODEL,
-                                        prompt=explanation_prompt,
-                                        stream=False
-                                    )
-                                    
-                                    explanation_text = explanation_response['response']
-                                    st.write(explanation_text)
+Keep it to 2-3 sentences maximum. Focus on actionable insights."""
                                 
-                            except Exception as e:
-                                st.error(f"❌ Error executing tool: {str(e)}")
-                    else:
-                        st.warning(f"⚠️ Tool '{tool_name}' not found. Using default analysis.")
-                        
-                        # Fallback: show full comparison
-                        data = get_all_data()
-                        st.json(data['full_comparison'])
+                                explanation_response = client.generate(
+                                    model=MODEL,
+                                    prompt=explanation_prompt,
+                                    stream=False
+                                )
+                                
+                                explanation_text = explanation_response['response']
+                                st.write(explanation_text)
+                            
+                        except Exception as e:
+                            st.error(f"❌ Error executing tool: {str(e)}")
+                else:
+                    st.warning(f"⚠️ Tool '{tool_name}' not found. Using full comparison.")
+                    
+                    # Fallback: show full comparison
+                    data = get_all_data()
+                    result = data['full_comparison']
+                    st.json(result)
                 
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")

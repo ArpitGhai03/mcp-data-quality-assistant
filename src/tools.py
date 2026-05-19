@@ -3,29 +3,48 @@ MCP-style tools for database comparison and data quality analysis.
 These tools are designed to be called by AI systems and provide structured data output.
 """
 
-import sqlite3
 import os
+import psycopg2
+from decimal import Decimal
+from datetime import date
 from typing import Dict, List, Tuple, Any
+from db_config import get_prod_config, get_staging_config
 
-# ---------- Configuration ----------
+# Data directory for exports
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-DATA_DIR = os.path.abspath(DATA_DIR)
 
-PROD_DB = os.path.join(DATA_DIR, "prod.db")
-STAGING_DB = os.path.join(DATA_DIR, "staging.db")
+
+# ---------- Helper Functions ----------
+def _convert_to_serializable(obj):
+    """Convert non-JSON-serializable objects to serializable types."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, date):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {k: _convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_convert_to_serializable(item) for item in obj]
+    return obj
 
 
 # ---------- Database Connection ----------
-def _connect(db_path: str) -> sqlite3.Connection:
-    """Internal function to connect to database."""
-    return sqlite3.connect(db_path)
+def _connect_prod():
+    """Internal function to connect to production database."""
+    return psycopg2.connect(**get_prod_config())
 
 
-def _get_all_orders(conn: sqlite3.Connection) -> Dict[int, Tuple]:
+def _connect_staging():
+    """Internal function to connect to staging database."""
+    return psycopg2.connect(**get_staging_config())
+
+
+def _get_all_orders(conn) -> Dict[int, Tuple]:
     """Internal function to fetch all orders from database."""
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM orders")
     rows = cursor.fetchall()
+    cursor.close()
     return {row[0]: row for row in rows}  # Dictionary with order_id as key
 
 
@@ -40,8 +59,8 @@ def get_missing_rows() -> Dict[str, Any]:
         - 'percentage': percentage of data loss
         - 'rows': list of missing row dictionaries
     """
-    prod_conn = _connect(PROD_DB)
-    staging_conn = _connect(STAGING_DB)
+    prod_conn = _connect_prod()
+    staging_conn = _connect_staging()
     
     prod_orders = _get_all_orders(prod_conn)
     staging_orders = _get_all_orders(staging_conn)
@@ -56,19 +75,19 @@ def get_missing_rows() -> Dict[str, Any]:
             missing_rows.append({
                 'order_id': row[0],
                 'customer_name': row[1],
-                'amount': row[2],
+                'amount': float(row[2]) if isinstance(row[2], Decimal) else row[2],
                 'country': row[3],
-                'created_at': row[4]
+                'created_at': str(row[4]) if row[4] else None
             })
     
     percentage = (len(missing_rows) / len(prod_orders)) * 100 if prod_orders else 0
     
-    return {
+    return _convert_to_serializable({
         'count': len(missing_rows),
         'percentage': round(percentage, 2),
         'total_prod_records': len(prod_orders),
         'rows': missing_rows
-    }
+    })
 
 
 # ---------- Tool: get_mismatched_rows ----------
@@ -82,8 +101,8 @@ def get_mismatched_rows() -> Dict[str, Any]:
         - 'percentage': percentage of data with differences
         - 'rows': list of mismatched row dictionaries with before/after comparison
     """
-    prod_conn = _connect(PROD_DB)
-    staging_conn = _connect(STAGING_DB)
+    prod_conn = _connect_prod()
+    staging_conn = _connect_staging()
     
     prod_orders = _get_all_orders(prod_conn)
     staging_orders = _get_all_orders(staging_conn)
@@ -104,37 +123,39 @@ def get_mismatched_rows() -> Dict[str, Any]:
                 if prod_row[1] != staging_row[1]:
                     changes['customer_name'] = {'prod': prod_row[1], 'staging': staging_row[1]}
                 if prod_row[2] != staging_row[2]:
-                    changes['amount'] = {'prod': prod_row[2], 'staging': staging_row[2]}
+                    prod_amount = float(prod_row[2]) if isinstance(prod_row[2], Decimal) else prod_row[2]
+                    staging_amount = float(staging_row[2]) if isinstance(staging_row[2], Decimal) else staging_row[2]
+                    changes['amount'] = {'prod': prod_amount, 'staging': staging_amount}
                 if prod_row[3] != staging_row[3]:
                     changes['country'] = {'prod': prod_row[3], 'staging': staging_row[3]}
                 if prod_row[4] != staging_row[4]:
-                    changes['created_at'] = {'prod': prod_row[4], 'staging': staging_row[4]}
+                    changes['created_at'] = {'prod': str(prod_row[4]), 'staging': str(staging_row[4])}
                 
                 mismatched_rows.append({
                     'order_id': order_id,
                     'changes': changes,
                     'production': {
                         'customer_name': prod_row[1],
-                        'amount': prod_row[2],
+                        'amount': float(prod_row[2]) if isinstance(prod_row[2], Decimal) else prod_row[2],
                         'country': prod_row[3],
-                        'created_at': prod_row[4]
+                        'created_at': str(prod_row[4]) if prod_row[4] else None
                     },
                     'staging': {
                         'customer_name': staging_row[1],
-                        'amount': staging_row[2],
+                        'amount': float(staging_row[2]) if isinstance(staging_row[2], Decimal) else staging_row[2],
                         'country': staging_row[3],
-                        'created_at': staging_row[4]
+                        'created_at': str(staging_row[4]) if staging_row[4] else None
                     }
                 })
     
     percentage = (len(mismatched_rows) / len(prod_orders)) * 100 if prod_orders else 0
     
-    return {
+    return _convert_to_serializable({
         'count': len(mismatched_rows),
         'percentage': round(percentage, 2),
         'total_prod_records': len(prod_orders),
         'rows': mismatched_rows
-    }
+    })
 
 
 # ---------- Tool: get_quality_score ----------
@@ -191,11 +212,11 @@ def run_full_comparison() -> Dict[str, Any]:
     missing = get_missing_rows()
     mismatched = get_mismatched_rows()
     
-    return {
+    return _convert_to_serializable({
         'timestamp': __import__('datetime').datetime.now().isoformat(),
         'databases': {
-            'production': PROD_DB,
-            'staging': STAGING_DB
+            'production': get_prod_config()['database'],
+            'staging': get_staging_config()['database']
         },
         'quality_metrics': quality,
         'missing_rows': missing,
@@ -204,7 +225,7 @@ def run_full_comparison() -> Dict[str, Any]:
             'status': 'GOOD' if quality['quality_score'] >= 90 else 'WARNING' if quality['quality_score'] >= 80 else 'CRITICAL',
             'recommendation': _get_recommendation(quality, missing, mismatched)
         }
-    }
+    })
 
 
 # ---------- Helper: Get Recommendation ----------
@@ -239,13 +260,13 @@ def export_report(output_file: str = None) -> Dict[str, Any]:
     report = run_full_comparison()
     
     with open(output_file, 'w') as f:
-        json.dump(report, f, indent=2)
+        json.dump(_convert_to_serializable(report), f, indent=2)
     
-    return {
+    return _convert_to_serializable({
         'status': 'success',
         'file_path': output_file,
         'report': report
-    }
+    })
 
 
 if __name__ == "__main__":

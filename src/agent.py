@@ -6,6 +6,9 @@ Will be replaced by MCP in future versions.
 
 import json
 import sys
+import subprocess
+import time
+import requests
 from typing import Any, Dict, List
 from ollama import Client
 from tools import (
@@ -67,9 +70,52 @@ When the user asks a question about database quality or comparison:
 Always be helpful and provide actionable insights based on the data."""
 
 
-# ---------- Ollama Client ----------
+# ---------- Ollama Management ----------
+def check_ollama_running() -> bool:
+    """Check if Ollama is already running."""
+    try:
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=2)
+        return response.status_code == 200
+    except (requests.ConnectionError, requests.Timeout):
+        return False
+
+
+def start_ollama():
+    """Start Ollama service."""
+    print("🚀 Starting Ollama...")
+    try:
+        # Try to start Ollama (works on Windows with ollama installed)
+        subprocess.Popen(["ollama", "serve"], 
+                        stdout=subprocess.DEVNULL, 
+                        stderr=subprocess.DEVNULL)
+        print("⏳ Waiting for Ollama to start...")
+        
+        # Wait for Ollama to be ready (max 30 seconds)
+        for i in range(30):
+            if check_ollama_running():
+                print("✅ Ollama started successfully!")
+                return True
+            time.sleep(1)
+        
+        print("⚠️  Ollama took too long to start. It may still be starting...")
+        return False
+    except FileNotFoundError:
+        print("❌ Error: Ollama is not installed or not in PATH.")
+        print("📥 Please install Ollama from https://ollama.ai")
+        return False
+    except Exception as e:
+        print(f"❌ Error starting Ollama: {e}")
+        return False
+
+
 def get_ollama_client() -> Client:
-    """Initialize and return Ollama client."""
+    """Initialize and return Ollama client. Starts Ollama if not running."""
+    if not check_ollama_running():
+        print("🔍 Ollama is not running...")
+        if not start_ollama():
+            raise RuntimeError(
+                "Failed to start Ollama. Please start it manually with: ollama serve"
+            )
     return Client(host=OLLAMA_BASE_URL)
 
 
@@ -164,7 +210,14 @@ def reasoning_loop(user_query: str, max_iterations: int = 3) -> Dict[str, Any]:
     Returns:
         Dict with the final response and execution details
     """
-    client = get_ollama_client()
+    try:
+        client = get_ollama_client()
+    except RuntimeError as e:
+        return {
+            'status': 'error',
+            'error': str(e),
+            'suggestion': "Make sure Ollama is installed and running: ollama serve"
+        }
     
     conversation_history = []
     tool_results = []

@@ -2,3 +2,8 @@ streamlit
 pandas
 plotly
 faker
+psycopg2-binary
+ollama
+requests
+python-dotenv
+mcp

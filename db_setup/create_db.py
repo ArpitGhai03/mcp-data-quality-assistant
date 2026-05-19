@@ -1,22 +1,15 @@
-import sqlite3
+import psycopg2
+from psycopg2 import sql
+import sys
 import os
-from faker import Faker
-import random
-
-fake = Faker()
-
-# ---------- Paths ----------
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-DATA_DIR = os.path.abspath(DATA_DIR)
-os.makedirs(DATA_DIR, exist_ok=True)
-
-PROD_DB = os.path.join(DATA_DIR, "prod.db")
-STAGING_DB = os.path.join(DATA_DIR, "staging.db")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+from db_config import get_prod_config, get_staging_config
 
 
 # ---------- Create connection ----------
-def connect(db_path):
-    return sqlite3.connect(db_path)
+def connect(config):
+    """Connect to PostgreSQL database"""
+    return psycopg2.connect(**config)
 
 
 # ---------- Create table ----------
@@ -25,11 +18,11 @@ def create_tables(conn):
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS orders (
-        order_id INTEGER PRIMARY KEY,
-        customer_name TEXT,
-        amount REAL,
-        country TEXT,
-        created_at TEXT
+        order_id SERIAL PRIMARY KEY,
+        customer_name VARCHAR(255),
+        amount NUMERIC(10, 2),
+        country VARCHAR(100),
+        created_at DATE
     )
     """)
 
@@ -40,14 +33,25 @@ def create_tables(conn):
 def insert_data(conn, num_rows=100, missing_ratio=0.1, modify_ratio=0.1):
     cursor = conn.cursor()
 
+    # Check if data already exists
+    cursor.execute("SELECT COUNT(*) FROM orders")
+    if cursor.fetchone()[0] > 0:
+        print("⏭️  Data already exists in database, skipping insert")
+        return
+
+    from faker import Faker
+    import random
+    fake = Faker()
+
     for i in range(1, num_rows + 1):
         name = fake.name()
-        amount = round(random.uniform(20, 500), 2)
+        amount = round(random.uniform(100, 5000), 2)
         country = fake.country()
         date = fake.date()
 
         cursor.execute("""
-        INSERT INTO orders VALUES (?, ?, ?, ?, ?)
+        INSERT INTO orders (order_id, customer_name, amount, country, created_at) 
+        VALUES (%s, %s, %s, %s, %s)
         """, (i, name, amount, country, date))
 
     conn.commit()
@@ -58,21 +62,24 @@ def insert_staging_data(prod_conn, staging_conn):
     prod_cursor = prod_conn.cursor()
     staging_cursor = staging_conn.cursor()
 
-    rows = prod_cursor.execute("SELECT * FROM orders").fetchall()
+    prod_cursor.execute("SELECT * FROM orders")
+    rows = prod_cursor.fetchall()
 
+    import random
     for row in rows:
         order_id, name, amount, country, date = row
 
-        # ❗ simulate missing data (skip some rows)
-        if random.random() < 0.1:
+        # ❗ simulate missing data (skip some rows) - 20% data loss
+        if random.random() < 0.2:
             continue
 
-        # ❗ simulate modified data
-        if random.random() < 0.1:
-            amount = amount * random.uniform(0.8, 1.2)
+        # ❗ simulate modified data - 20% data corruption
+        if random.random() < 0.2:
+            amount = float(amount) * random.uniform(0.7, 1.3)
 
         staging_cursor.execute("""
-        INSERT INTO orders VALUES (?, ?, ?, ?, ?)
+        INSERT INTO orders (order_id, customer_name, amount, country, created_at) 
+        VALUES (%s, %s, %s, %s, %s)
         """, (order_id, name, amount, country, date))
 
     staging_conn.commit()
@@ -80,20 +87,36 @@ def insert_staging_data(prod_conn, staging_conn):
 
 # ---------- Main ----------
 def main():
-    prod_conn = connect(PROD_DB)
-    staging_conn = connect(STAGING_DB)
-
+    reset = "--reset" in sys.argv
+    
+    if reset:
+        print("🔄 Resetting databases...")
+        prod_conn = connect(get_prod_config())
+        staging_conn = connect(get_staging_config())
+        
+        prod_cursor = prod_conn.cursor()
+        staging_cursor = staging_conn.cursor()
+        
+        prod_cursor.execute("DROP TABLE IF EXISTS orders CASCADE")
+        staging_cursor.execute("DROP TABLE IF EXISTS orders CASCADE")
+        
+        prod_conn.commit()
+        staging_conn.commit()
+        print("   ✅ Dropped orders tables")
+    else:
+        prod_conn = connect(get_prod_config())
+        staging_conn = connect(get_staging_config())
+    
     create_tables(prod_conn)
     create_tables(staging_conn)
 
-    insert_data(prod_conn, num_rows=100)
-
+    insert_data(prod_conn, num_rows=500)
     insert_staging_data(prod_conn, staging_conn)
 
     prod_conn.close()
     staging_conn.close()
 
-    print("Databases created successfully!")
+    print("✅ Databases ready! (prod and staging PostgreSQL databases)")
 
 
 if __name__ == "__main__":

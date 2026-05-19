@@ -1,0 +1,302 @@
+{
+  "timestamp": "2026-05-18T11:56:09.138319",
+  "databases": {
+    "production": "C:\\Users\\arpit\\Jupyter Notebook\\mcp_project\\data\\prod.db",
+    "staging": "C:\\Users\\arpit\\Jupyter Notebook\\mcp_project\\data\\staging.db"
+  },
+  "quality_metrics": {
+    "quality_score": 82.0,
+    "prod_total": 100,
+    "staging_total": 92,
+    "missing_count": 8,
+    "missing_percentage": 8.0,
+    "mismatched_count": 10,
+    "mismatched_percentage": 10.0,
+    "healthy_count": 82,
+    "healthy_percentage": 82.0
+  },
+  "missing_rows": {
+    "count": 8,
+    "percentage": 8.0,
+    "total_prod_records": 100,
+    "rows": [
+      {
+        "order_id": 10,
+        "customer_name": "Lisa Murray",
+        "amount": 74.75,
+        "country": "Eritrea",
+        "created_at": "1987-04-22"
+      },
+      {
+        "order_id": 26,
+        "customer_name": "Sarah Willis",
+        "amount": 78.42,
+        "country": "Sierra Leone",
+        "created_at": "2014-06-23"
+      },
+      {
+        "order_id": 30,
+        "customer_name": "Wesley Freeman",
+        "amount": 101.43,
+        "country": "Serbia",
+        "created_at": "1979-02-25"
+      },
+      {
+        "order_id": 39,
+        "customer_name": "Troy Palmer",
+        "amount": 271.17,
+        "country": "Costa Rica",
+        "created_at": "2021-02-21"
+      },
+      {
+        "order_id": 52,
+        "customer_name": "Maxwell Olsen",
+        "amount": 254.42,
+        "country": "French Southern Territories",
+        "created_at": "1971-07-12"
+      },
+      {
+        "order_id": 62,
+        "customer_name": "Robert Burgess",
+        "amount": 291.8,
+        "country": "United States Minor Outlying Islands",
+        "created_at": "2020-03-18"
+      },
+      {
+        "order_id": 72,
+        "customer_name": "Deborah Malone",
+        "amount": 323.48,
+        "country": "Equatorial Guinea",
+        "created_at": "1982-06-21"
+      },
+      {
+        "order_id": 97,
+        "customer_name": "Monica Curry",
+        "amount": 448.45,
+        "country": "Taiwan",
+        "created_at": "2020-10-21"
+      }
+    ]
+  },
+  "mismatched_rows": {
+    "count": 10,
+    "percentage": 10.0,
+    "total_prod_records": 100,
+    "rows": [
+      {
+        "order_id": 13,
+        "changes": {
+          "amount": {
+            "prod": 410.65,
+            "staging": 378.85773012725673
+          }
+        },
+        "production": {
+          "customer_name": "Steven Knight",
+          "amount": 410.65,
+          "country": "Marshall Islands",
+          "created_at": "2018-02-02"
+        },
+        "staging": {
+          "customer_name": "Steven Knight",
+          "amount": 378.85773012725673,
+          "country": "Marshall Islands",
+          "created_at": "2018-02-02"
+        }
+      },
+      {
+        "order_id": 15,
+        "changes": {
+          "amount": {
+            "prod": 74.92,
+            "staging": 74.74870687409647
+          }
+        },
+        "production": {
+          "customer_name": "Stephanie Martin",
+          "amount": 74.92,
+          "country": "Samoa",
+          "created_at": "2020-11-12"
+        },
+        "staging": {
+          "customer_name": "Stephanie Martin",
+          "amount": 74.74870687409647,
+          "country": "Samoa",
+          "created_at": "2020-11-12"
+        }
+      },
+      {
+        "order_id": 43,
+        "changes": {
+          "amount": {
+            "prod": 222.6,
+            "staging": 239.46364825888656
+          }
+        },
+        "production": {
+          "customer_name": "Alexander Morris",
+          "amount": 222.6,
+          "country": "Niue",
+          "created_at": "2010-01-04"
+        },
+        "staging": {
+          "customer_name": "Alexander Morris",
+          "amount": 239.46364825888656,
+          "country": "Niue",
+          "created_at": "2010-01-04"
+        }
+      },
+      {
+        "order_id": 44,
+        "changes": {
+          "amount": {
+            "prod": 461.66,
+            "staging": 460.50793612101364
+          }
+        },
+        "production": {
+          "customer_name": "Jerry Lee",
+          "amount": 461.66,
+          "country": "Brunei Darussalam",
+          "created_at": "1989-11-21"
+        },
+        "staging": {
+          "customer_name": "Jerry Lee",
+          "amount": 460.50793612101364,
+          "country": "Brunei Darussalam",
+          "created_at": "1989-11-21"
+        }
+      },
+      {
+        "order_id": 50,
+        "changes": {
+          "amount": {
+            "prod": 401.08,
+            "staging": 385.85176943745694
+          }
+        },
+        "production": {
+          "customer_name": "David Garcia",
+          "amount": 401.08,
+          "country": "Turkey",
+          "created_at": "2014-09-13"
+        },
+        "staging": {
+          "customer_name": "David Garcia",
+          "amount": 385.85176943745694,
+          "country": "Turkey",
+          "created_at": "2014-09-13"
+        }
+      },
+      {
+        "order_id": 54,
+        "changes": {
+          "amount": {
+            "prod": 355.73,
+            "staging": 406.333893584477
+          }
+        },
+        "production": {
+          "customer_name": "Seth Bailey",
+          "amount": 355.73,
+          "country": "Papua New Guinea",
+          "created_at": "1991-06-02"
+        },
+        "staging": {
+          "customer_name": "Seth Bailey",
+          "amount": 406.333893584477,
+          "country": "Papua New Guinea",
+          "created_at": "1991-06-02"
+        }
+      },
+      {
+        "order_id": 64,
+        "changes": {
+          "amount": {
+            "prod": 481.96,
+            "staging": 443.7993289466519
+          }
+        },
+        "production": {
+          "customer_name": "Danielle Scott",
+          "amount": 481.96,
+          "country": "Ethiopia",
+          "created_at": "1996-05-05"
+        },
+        "staging": {
+          "customer_name": "Danielle Scott",
+          "amount": 443.7993289466519,
+          "country": "Ethiopia",
+          "created_at": "1996-05-05"
+        }
+      },
+      {
+        "order_id": 66,
+        "changes": {
+          "amount": {
+            "prod": 480.43,
+            "staging": 444.22679437405134
+          }
+        },
+        "production": {
+          "customer_name": "Gary Barker DDS",
+          "amount": 480.43,
+          "country": "Saint Lucia",
+          "created_at": "1980-04-09"
+        },
+        "staging": {
+          "customer_name": "Gary Barker DDS",
+          "amount": 444.22679437405134,
+          "country": "Saint Lucia",
+          "created_at": "1980-04-09"
+        }
+      },
+      {
+        "order_id": 92,
+        "changes": {
+          "amount": {
+            "prod": 345.37,
+            "staging": 319.028460391196
+          }
+        },
+        "production": {
+          "customer_name": "Joshua Turner",
+          "amount": 345.37,
+          "country": "Burkina Faso",
+          "created_at": "1999-10-30"
+        },
+        "staging": {
+          "customer_name": "Joshua Turner",
+          "amount": 319.028460391196,
+          "country": "Burkina Faso",
+          "created_at": "1999-10-30"
+        }
+      },
+      {
+        "order_id": 96,
+        "changes": {
+          "amount": {
+            "prod": 447.5,
+            "staging": 369.3411598110673
+          }
+        },
+        "production": {
+          "customer_name": "Joshua Montoya",
+          "amount": 447.5,
+          "country": "Gambia",
+          "created_at": "1996-02-10"
+        },
+        "staging": {
+          "customer_name": "Joshua Montoya",
+          "amount": 369.3411598110673,
+          "country": "Gambia",
+          "created_at": "1996-02-10"
+        }
+      }
+    ]
+  },
+  "summary": {
+    "status": "WARNING",
+    "recommendation": "Data quality is acceptable. 8 records are missing and 10 have differences. Review before deployment."
+  }
+}
