@@ -269,6 +269,354 @@ def export_report(output_file: str = None) -> Dict[str, Any]:
     })
 
 
+# ---------- Migration Tools ----------
+
+def preview_migration(source_db: str, dest_db: str, migration_type: str) -> Dict[str, Any]:
+    """
+    Preview what will be migrated without actually migrating.
+    
+    Args:
+        source_db: 'prod' or 'staging' - source database
+        dest_db: 'prod' or 'staging' - destination database
+        migration_type: 'missing' or 'mismatched' or 'both'
+    
+    Returns:
+        Dict with preview of migration including row counts and samples
+    """
+    # Determine which connection to use as source
+    if source_db == 'prod':
+        source_conn = _connect_prod()
+        dest_conn = _connect_staging()
+    else:
+        source_conn = _connect_staging()
+        dest_conn = _connect_prod()
+    
+    source_orders = _get_all_orders(source_conn)
+    dest_orders = _get_all_orders(dest_conn)
+    
+    missing_rows = []
+    mismatched_rows = []
+    
+    # Find missing rows (in source but not in dest)
+    if migration_type in ['missing', 'both']:
+        for order_id in source_orders:
+            if order_id not in dest_orders:
+                row = source_orders[order_id]
+                missing_rows.append({
+                    'order_id': row[0],
+                    'customer_name': row[1],
+                    'amount': float(row[2]) if isinstance(row[2], Decimal) else row[2],
+                    'country': row[3],
+                    'created_at': str(row[4]) if row[4] else None
+                })
+    
+    # Find mismatched rows (exist in both but with different data)
+    if migration_type in ['mismatched', 'both']:
+        for order_id in source_orders:
+            if order_id in dest_orders:
+                source_row = source_orders[order_id]
+                dest_row = dest_orders[order_id]
+                
+                if source_row[1:] != dest_row[1:]:
+                    mismatched_rows.append({
+                        'order_id': order_id,
+                        'customer_name': source_row[1],
+                        'amount': float(source_row[2]) if isinstance(source_row[2], Decimal) else source_row[2],
+                        'country': source_row[3],
+                        'created_at': str(source_row[4]) if source_row[4] else None
+                    })
+    
+    source_conn.close()
+    dest_conn.close()
+    
+    total_rows = len(missing_rows) + len(mismatched_rows)
+    
+    return _convert_to_serializable({
+        'status': 'success',
+        'source_db': source_db,
+        'dest_db': dest_db,
+        'migration_type': migration_type,
+        'missing_rows_count': len(missing_rows),
+        'mismatched_rows_count': len(mismatched_rows),
+        'total_rows_to_migrate': total_rows,
+        'missing_rows_preview': missing_rows[:10],  # Show first 10
+        'mismatched_rows_preview': mismatched_rows[:10]
+    })
+
+
+def create_backup_snapshot(db_name: str) -> Dict[str, Any]:
+    """
+    Create a backup snapshot of a database before migration.
+    
+    Args:
+        db_name: 'prod' or 'staging'
+    
+    Returns:
+        Dict with backup metadata and timestamp
+    """
+    import json
+    from datetime import datetime
+    
+    if db_name == 'prod':
+        conn = _connect_prod()
+        db_config = get_prod_config()
+    else:
+        conn = _connect_staging()
+        db_config = get_staging_config()
+    
+    orders = _get_all_orders(conn)
+    conn.close()
+    
+    # Convert to list of dicts
+    orders_list = []
+    for order_id, row in orders.items():
+        orders_list.append({
+            'order_id': row[0],
+            'customer_name': row[1],
+            'amount': float(row[2]) if isinstance(row[2], Decimal) else row[2],
+            'country': row[3],
+            'created_at': str(row[4]) if row[4] else None
+        })
+    
+    timestamp = datetime.now().isoformat()
+    backup_filename = f"backup_{db_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    backup_path = os.path.join(DATA_DIR, backup_filename)
+    
+    backup_data = {
+        'timestamp': timestamp,
+        'database': db_name,
+        'record_count': len(orders_list),
+        'orders': orders_list
+    }
+    
+    with open(backup_path, 'w') as f:
+        json.dump(backup_data, f, indent=2)
+    
+    return _convert_to_serializable({
+        'status': 'success',
+        'backup_id': backup_filename,
+        'database': db_name,
+        'timestamp': timestamp,
+        'record_count': len(orders_list),
+        'backup_path': backup_path
+    })
+
+
+def migrate_missing_rows(source_db: str, dest_db: str, backup_id: str = None) -> Dict[str, Any]:
+    """
+    Migrate missing rows from source to destination database.
+    
+    Args:
+        source_db: 'prod' or 'staging'
+        dest_db: 'prod' or 'staging'
+        backup_id: Optional backup ID for rollback
+    
+    Returns:
+        Dict with migration results
+    """
+    if source_db == 'prod':
+        source_conn = _connect_prod()
+        dest_conn = _connect_staging()
+    else:
+        source_conn = _connect_staging()
+        dest_conn = _connect_prod()
+    
+    source_orders = _get_all_orders(source_conn)
+    dest_orders = _get_all_orders(dest_conn)
+    
+    # Find missing rows
+    migrated_count = 0
+    migrated_rows = []
+    
+    try:
+        dest_cursor = dest_conn.cursor()
+        
+        for order_id in source_orders:
+            if order_id not in dest_orders:
+                row = source_orders[order_id]
+                
+                # Insert into destination
+                dest_cursor.execute("""
+                    INSERT INTO orders (order_id, customer_name, amount, country, created_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (order_id) DO NOTHING
+                """, (row[0], row[1], row[2], row[3], row[4]))
+                
+                migrated_count += 1
+                migrated_rows.append({
+                    'order_id': row[0],
+                    'customer_name': row[1],
+                    'amount': float(row[2]) if isinstance(row[2], Decimal) else row[2]
+                })
+        
+        dest_conn.commit()
+        source_conn.close()
+        dest_conn.close()
+        
+        return _convert_to_serializable({
+            'status': 'success',
+            'migration_type': 'missing_rows',
+            'source_db': source_db,
+            'dest_db': dest_db,
+            'rows_migrated': migrated_count,
+            'backup_id': backup_id,
+            'migrated_rows_sample': migrated_rows[:10]
+        })
+    
+    except Exception as e:
+        dest_conn.rollback()
+        source_conn.close()
+        dest_conn.close()
+        
+        return {
+            'status': 'error',
+            'error': str(e),
+            'backup_id': backup_id
+        }
+
+
+def migrate_mismatched_rows(source_db: str, dest_db: str, backup_id: str = None) -> Dict[str, Any]:
+    """
+    Migrate mismatched rows from source to destination database (overwrite).
+    
+    Args:
+        source_db: 'prod' or 'staging'
+        dest_db: 'prod' or 'staging'
+        backup_id: Optional backup ID for rollback
+    
+    Returns:
+        Dict with migration results
+    """
+    if source_db == 'prod':
+        source_conn = _connect_prod()
+        dest_conn = _connect_staging()
+    else:
+        source_conn = _connect_staging()
+        dest_conn = _connect_prod()
+    
+    source_orders = _get_all_orders(source_conn)
+    dest_orders = _get_all_orders(dest_conn)
+    
+    # Find mismatched rows
+    migrated_count = 0
+    migrated_rows = []
+    
+    try:
+        dest_cursor = dest_conn.cursor()
+        
+        for order_id in source_orders:
+            if order_id in dest_orders:
+                source_row = source_orders[order_id]
+                dest_row = dest_orders[order_id]
+                
+                # Check if they differ
+                if source_row[1:] != dest_row[1:]:
+                    # Update in destination
+                    dest_cursor.execute("""
+                        UPDATE orders 
+                        SET customer_name = %s, amount = %s, country = %s, created_at = %s
+                        WHERE order_id = %s
+                    """, (source_row[1], source_row[2], source_row[3], source_row[4], source_row[0]))
+                    
+                    migrated_count += 1
+                    migrated_rows.append({
+                        'order_id': source_row[0],
+                        'customer_name': source_row[1],
+                        'amount': float(source_row[2]) if isinstance(source_row[2], Decimal) else source_row[2]
+                    })
+        
+        dest_conn.commit()
+        source_conn.close()
+        dest_conn.close()
+        
+        return _convert_to_serializable({
+            'status': 'success',
+            'migration_type': 'mismatched_rows',
+            'source_db': source_db,
+            'dest_db': dest_db,
+            'rows_migrated': migrated_count,
+            'backup_id': backup_id,
+            'migrated_rows_sample': migrated_rows[:10]
+        })
+    
+    except Exception as e:
+        dest_conn.rollback()
+        source_conn.close()
+        dest_conn.close()
+        
+        return {
+            'status': 'error',
+            'error': str(e),
+            'backup_id': backup_id
+        }
+
+
+def rollback_to_backup(backup_id: str, db_name: str) -> Dict[str, Any]:
+    """
+    Rollback a database to a previous backup.
+    
+    Args:
+        backup_id: Backup filename to restore from
+        db_name: 'prod' or 'staging' - database to restore
+    
+    Returns:
+        Dict with rollback results
+    """
+    import json
+    
+    backup_path = os.path.join(DATA_DIR, backup_id)
+    
+    if not os.path.exists(backup_path):
+        return {
+            'status': 'error',
+            'error': f'Backup file not found: {backup_id}'
+        }
+    
+    try:
+        # Load backup data
+        with open(backup_path, 'r') as f:
+            backup_data = json.load(f)
+        
+        # Get connection to database
+        if db_name == 'prod':
+            conn = _connect_prod()
+        else:
+            conn = _connect_staging()
+        
+        cursor = conn.cursor()
+        
+        # Delete all current data
+        cursor.execute("DELETE FROM orders")
+        
+        # Restore from backup
+        for order in backup_data['orders']:
+            cursor.execute("""
+                INSERT INTO orders (order_id, customer_name, amount, country, created_at)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (order['order_id'], order['customer_name'], order['amount'], order['country'], order['created_at']))
+        
+        conn.commit()
+        conn.close()
+        
+        return _convert_to_serializable({
+            'status': 'success',
+            'message': f'Successfully restored {db_name} database from backup',
+            'backup_id': backup_id,
+            'database': db_name,
+            'records_restored': len(backup_data['orders'])
+        })
+    
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
+        
+        return {
+            'status': 'error',
+            'error': str(e)
+        }
+
+
 if __name__ == "__main__":
     # Example usage
     print("Running full comparison...")

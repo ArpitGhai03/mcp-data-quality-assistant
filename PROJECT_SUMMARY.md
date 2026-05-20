@@ -1,8 +1,9 @@
 # MCP Data Quality Assistant - Complete Project Summary
 
-**Date:** May 18, 2026  
+**Date:** May 20, 2026  
 **Project Type:** AI-powered Data Quality Monitoring System  
-**Architecture:** MCP (Model Context Protocol) + Ollama LLM + SQLite
+**Architecture:** MCP (Model Context Protocol) + Ollama LLM + PostgreSQL  
+**Status:** Production-ready with PostgreSQL backend and integrated CLI launcher
 
 ---
 
@@ -12,10 +13,11 @@ This is an **AI-powered data quality and consistency monitoring system** that de
 - **MCP (Model Context Protocol)** for tool exposure to external AI clients
 - **Ollama** for running local LLMs (LLaMA3/Gemma)
 - **Tool-based AI reasoning** where the LLM selects and calls appropriate tools
+- **PostgreSQL** for robust production and staging databases
 - **Multiple interfaces**: CLI agent, MCP server, and Streamlit dashboard
 
 ### Key Capabilities
-- Synthetic Production & Staging databases (SQLite)
+- PostgreSQL Production & Staging databases with environment-based configuration
 - Data quality analysis (missing rows, mismatches, quality scoring)
 - AI-powered natural language analysis through an intelligent agent
 - Automated report generation and JSON export
@@ -47,19 +49,22 @@ AI-Generated Explanation & Results
 mcp_project/
 ├── README.md                      # Project documentation
 ├── PROJECT_SUMMARY.md            # This file
+├── run_app.py                    # Master CLI launcher (Ollama + Dashboard + Agent)
+├── .env                          # PostgreSQL connection credentials (environment config)
 ├── src/
 │   ├── agent.py                  # Ollama-based reasoning agent with tool-calling
 │   ├── tools.py                  # Core data quality analysis tools
 │   ├── mcp_server.py             # MCP server exposing tools to external clients
 │   ├── compare.py                # CLI utility for database comparison
 │   ├── dashboard.py              # Streamlit web UI for analysis
+│   ├── db_config.py              # PostgreSQL connection configuration
 │   ├── test_mcp_ollama.py        # Testing utilities
 │   └── requirements.txt           # Python dependencies
 ├── db_setup/
-│   └── create_db.py              # Database initialization and synthetic data generation
+│   └── init_db.py                # Database initialization (creates tables and seed data)
 ├── data/
-│   ├── prod.db                   # Production database (SQLite)
-│   └── staging.db                # Staging database (SQLite)
+│   ├── comparison_report.json    # Latest comparison report
+│   └── [export files]
 └── images/
     └── [Project visualizations]
 ```
@@ -201,52 +206,67 @@ All 5 tools from tools.py are exposed as MCP-compliant tools with:
 
 ---
 
-### 4. **create_db.py** - Database Setup
+### 4. **init_db.py** - Database Initialization
 
-**Purpose:** Creates synthetic production and staging databases with intentional inconsistencies to demonstrate data quality issues.
+**Purpose:** Initializes PostgreSQL production and staging databases with table schema and seed data. Demonstrates data quality issues by simulating inconsistencies between environments.
 
-**Database Schema:**
+**Database Configuration:**
+- Reads PostgreSQL connection settings from `.env` file
+- Uses `db_config.py` module to load production and staging credentials
+- Environment variables: `PG_HOST`, `PG_PORT`, `PG_USER`, `PG_PASSWORD`, `PROD_DB_NAME`, `STAGING_DB_NAME`
+
+**Database Schema (PostgreSQL):**
 
 ```sql
-CREATE TABLE orders (
-    order_id INTEGER PRIMARY KEY,
-    customer_name TEXT,
-    amount REAL,
-    country TEXT,
-    created_at TEXT
+CREATE TABLE IF NOT EXISTS orders (
+    order_id SERIAL PRIMARY KEY,
+    customer_name VARCHAR(255),
+    amount NUMERIC(10, 2),
+    country VARCHAR(100),
+    created_at DATE
 )
 ```
 
-**Data Generation Process:**
+**Initialization Process:**
+
+#### `connect(config)`
+- Establishes PostgreSQL connection using psycopg2
+- Uses configuration from `db_config.py`
 
 #### `create_tables(conn)`
-- Creates the `orders` table if it doesn't exist
-- Same schema for both production and staging
+- Creates `orders` table in both production and staging databases
+- Uses `CREATE TABLE IF NOT EXISTS` to handle idempotency
 
-#### `insert_data(conn, num_rows=100, missing_ratio=0.1, modify_ratio=0.1)`
-- Generates synthetic data using Faker library
-- Creates 100 records by default with:
-  - `order_id`: Sequential integer (1-100)
-  - `customer_name`: Generated with Faker
-  - `amount`: Random float between 20-500
-  - `country`: Generated with Faker
-  - `created_at`: Random date
+#### `insert_data(conn, num_rows=500, missing_ratio=0.1, modify_ratio=0.1)`
+- Generates 500 synthetic records using Faker library
+- Checks for existing data to prevent duplication
+- Creates records with:
+  - `order_id`: Auto-generated SERIAL PRIMARY KEY
+  - `customer_name`: Faker-generated names
+  - `amount`: Random numeric values (100-5000)
+  - `country`: Faker-generated countries
+  - `created_at`: Faker-generated dates
 
 #### `insert_staging_data(prod_conn, staging_conn)`
-- Copies data from production to staging with intentional issues:
-  - **Missing Data Simulation:** 10% chance to skip a row (data loss)
-  - **Data Modification:** 10% chance to modify amount by ±20% (data corruption)
-  - Simulates real-world sync issues
+- Copies production data to staging with intentional quality issues:
+  - **Data Loss Simulation:** 20% chance to skip a row (simulates sync failures)
+  - **Data Corruption:** 20% chance to modify amount by ±30% (simulates ETL errors)
+  - Creates realistic data mismatch scenarios for quality testing
 
 **Execution:**
 ```bash
-python db_setup/create_db.py
+python db_setup/init_db.py
+```
+
+**Options:**
+```bash
+python db_setup/init_db.py --reset    # Drop and recreate all tables
 ```
 
 **Output:**
-- `data/prod.db` - Production database with 100 records
-- `data/staging.db` - Staging database with ~90 records and ~10% modified values
-- "Databases created successfully!" confirmation message
+- PostgreSQL production database with 500 seeded records
+- PostgreSQL staging database with ~400 records and ~20% corrupted values
+- Confirmation message indicating databases are ready
 
 ---
 
@@ -342,46 +362,78 @@ streamlit          # Web UI framework
 pandas             # Data manipulation
 plotly             # Interactive visualizations
 faker              # Synthetic data generation
+psycopg2-binary    # PostgreSQL adapter for Python
+python-dotenv      # Environment variable management
+ollama             # Ollama client library
 ```
 
 **Additional System Requirements:**
 - Python 3.11+
+- PostgreSQL 12+ (local or remote)
 - Ollama (installed and running locally)
-- SQLite3 (included with Python)
 - MCP protocol support (for MCP server)
 
 ---
 
 ## 🚀 How to Run
 
-### 1. **Setup Environment**
+### Prerequisites
+1. **PostgreSQL Setup**
+   ```bash
+   # Create .env file with your PostgreSQL credentials
+   echo "PG_HOST=localhost
+PG_PORT=5432
+PG_USER=postgres
+PG_PASSWORD=your_password
+PROD_DB_NAME=prod
+STAGING_DB_NAME=staging" > .env
+   
+   # Create the two databases in PostgreSQL
+   createdb prod
+   createdb staging
+   ```
+
+2. **Python Environment**
+   ```bash
+   python -m venv venv
+   # Windows
+   venv\Scripts\activate
+   # Linux/Mac
+   source venv/bin/activate
+   
+   pip install -r src/requirements.txt
+   ```
+
+### Quick Start (Master CLI - Recommended)
 ```bash
-cd mcp_project
-python -m venv venv
-# Windows
-venv\Scripts\activate
-# Linux/Mac
-source venv/bin/activate
+# Initialize databases (creates tables and seed data)
+python db_setup/init_db.py
+
+# Start everything with automatic orchestration
+python run_app.py
 ```
 
-### 2. **Install Dependencies**
+The `run_app.py` launcher automatically:
+- Checks and starts Ollama if not running
+- Launches the Streamlit dashboard on port 8503
+- Opens dashboard in default browser
+- Optionally starts the AI agent with `--agent` flag
+
+**Additional Options:**
 ```bash
-pip install -r src/requirements.txt
+python run_app.py --agent           # Include AI agent
+python run_app.py --no-browser      # Don't auto-open browser
+python run_app.py --agent --no-browser
 ```
 
-### 3. **Create Databases**
+### Individual Services
+
+**Option A: Reset & Reinitialize Databases**
 ```bash
-python db_setup/create_db.py
+python db_setup/init_db.py --reset  # Drops tables and recreates them
 ```
 
-### 4. **Start Ollama** (separate terminal)
-```bash
-ollama serve
-```
-
-### 5. **Run Desired Interface**
-
-**Option A: CLI Agent with Ollama**
+**Option B: CLI Agent with Ollama**
 ```bash
 python src/agent.py
 ```
@@ -390,18 +442,18 @@ Enter queries like:
 - "Show missing records in staging"
 - "Why is staging different from production?"
 
-**Option B: MCP Server**
+**Option C: MCP Server**
 ```bash
 python src/mcp_server.py
 ```
 Connect from Claude Desktop or other MCP client
 
-**Option C: CLI Comparison Report**
+**Option D: CLI Comparison Report**
 ```bash
 python src/compare.py
 ```
 
-**Option D: Web Dashboard**
+**Option E: Web Dashboard (standalone)**
 ```bash
 streamlit run src/dashboard.py
 ```
@@ -411,26 +463,32 @@ Access at http://localhost:8501
 
 ## 📊 Data Model
 
-### Database: Orders
+### Database: PostgreSQL Orders Table
 - **Table:** orders
 - **Columns:**
-  - `order_id` (INTEGER PRIMARY KEY) - Unique identifier
-  - `customer_name` (TEXT) - Customer name (Faker-generated)
-  - `amount` (REAL) - Order amount ($20-500)
-  - `country` (TEXT) - Country (Faker-generated)
-  - `created_at` (TEXT) - Creation date
+  - `order_id` (SERIAL PRIMARY KEY) - Auto-incrementing unique identifier
+  - `customer_name` (VARCHAR(255)) - Customer name (Faker-generated)
+  - `amount` (NUMERIC(10,2)) - Order amount (100-5000)
+  - `country` (VARCHAR(100)) - Country (Faker-generated)
+  - `created_at` (DATE) - Creation date (Faker-generated)
 
-### Synthetic Inconsistencies:
-- **Production:** 100 complete records
-- **Staging:** ~90 records (~10% missing)
-  - ~10% of amounts modified by ±20%
+### Databases:
+- **Production (`prod`):** 500 complete records representing authoritative source
+- **Staging (`staging`):** ~400 records (~20% missing)
+  - ~20% of amounts modified by ±30%
+  - Simulates real-world ETL and sync issues
+
+### Configuration:
+- Environment-based PostgreSQL connection settings (`.env` file)
+- Supports both local and remote PostgreSQL instances
+- Configurable database names, host, port, and credentials
 
 ---
 
 ## 🎯 Example Workflows
 
 ### Workflow 1: Detect Quality Issues
-1. Run `create_db.py` to generate databases
+1. Run `init_db.py` to initialize PostgreSQL databases and seed data
 2. Run `compare.py` to see missing and modified records
 3. Review report to identify data loss and corruption
 
@@ -461,16 +519,14 @@ Access at http://localhost:8501
 |-----------|-----------|---------|
 | Local LLM | Ollama + LLaMA3/Gemma | AI reasoning and tool selection |
 | Protocol | MCP (Model Context Protocol) | Tool exposure to AI clients |
-| Database | SQLite | Production & staging data storage |
+| Database | PostgreSQL 12+ | Production & staging data storage |
+| ORM/Driver | psycopg2 | PostgreSQL connection and queries |
 | CLI | Python + Tabulate | Command-line reporting |
 | Web UI | Streamlit | Interactive dashboard |
 | Visualization | Plotly | Charts and gauges |
 | Data Gen | Faker | Synthetic test data |
 | Data Processing | Pandas | Data manipulation |
-
----
-
-## 🧠 Key Concepts Demonstrated
+| Config | python-dotenv | Environment variable management |
 
 1. **Tool-Calling AI Systems** - LLM selects and calls appropriate tools
 2. **MCP Protocol** - Standard interface for AI to access external tools
@@ -484,13 +540,31 @@ Access at http://localhost:8501
 
 ## 📝 Notes
 
+- PostgreSQL must be running before initializing databases with `init_db.py`
+- Create PostgreSQL databases (`prod` and `staging`) before running initialization
+- Database credentials are managed via `.env` file (not committed to version control)
 - The `agent.py` will be replaced by the MCP server in future versions
-- All database paths are relative to the `data/` directory
 - Ollama must be running locally for agent and dashboard AI features
 - MCP server communicates via stdio (suitable for subprocess spawning)
 - Quality score threshold: 90% for "GOOD", 80% for "WARNING"
+- Use `init_db.py --reset` to drop and recreate tables if needed
 
 ---
 
-**Last Updated:** May 18, 2026  
-**Status:** Production-ready with demonstration databases
+---
+
+## ✨ Recent Updates (May 20, 2026)
+
+- **PostgreSQL Migration**: Upgraded from SQLite to PostgreSQL for production-grade database management
+- **Database Initialization**: Renamed `create_db.py` to `init_db.py` for clearer intent
+- **Environment Configuration**: Added `.env` file support for flexible database credentials
+- **Master CLI Launcher** (`run_app.py`): Orchestrates all services (Ollama, Streamlit, Agent)
+- **Automated Service Detection**: Checks Ollama status and auto-starts if needed
+- **Browser Auto-Launch**: Dashboard automatically opens in default browser
+- **Flexible Startup Options**: Run with or without agent, disable browser opening
+- **Improved Documentation**: Updated with PostgreSQL setup and configuration guidance
+
+---
+
+**Last Updated:** May 20, 2026  
+**Status:** Production-ready with integrated service orchestration

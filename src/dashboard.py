@@ -7,13 +7,19 @@ import streamlit as st
 import pandas as pd
 import json
 from datetime import datetime
+from decimal import Decimal
 import plotly.graph_objects as go
 from tools import (
     get_missing_rows,
     get_mismatched_rows,
     get_quality_score,
     run_full_comparison,
-    export_report
+    export_report,
+    preview_migration,
+    create_backup_snapshot,
+    migrate_missing_rows,
+    migrate_mismatched_rows,
+    rollback_to_backup
 )
 from ollama import Client
 
@@ -574,12 +580,316 @@ Keep it to 2-3 sentences maximum. Focus on actionable insights."""
         st.warning("⚠️ Please enter a question first!")
 
 
+def page_migration():
+    """Page 4: Data Migration Tool"""
+    st.title("🔄 Data Migration Tool")
+    
+    st.markdown("""
+    Safely migrate missing and mismatched rows between Production and Staging databases.
+    - 📋 Preview migration before executing
+    - 🛡️ Automatic backups before migration
+    - ⏮️ Rollback capability if needed
+    """)
+    
+    st.divider()
+    
+    # Initialize session state for migration
+    if 'migration_backup_id' not in st.session_state:
+        st.session_state.migration_backup_id = None
+    
+    # Step 1: Direction
+    st.subheader("Step 1️⃣: Choose Migration Direction")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📤 Production → Staging", use_container_width=True, key="direction_prod_to_staging"):
+            st.session_state.migration_direction = "prod_to_staging"
+    
+    with col2:
+        if st.button("📥 Staging → Production", use_container_width=True, key="direction_staging_to_prod"):
+            st.session_state.migration_direction = "staging_to_prod"
+    
+    if 'migration_direction' not in st.session_state:
+        st.info("👈 Select a migration direction to continue")
+        return
+    
+    # Display selected direction
+    if st.session_state.migration_direction == "prod_to_staging":
+        st.success("✅ Selected: Production → Staging")
+        source_db = "prod"
+        dest_db = "staging"
+    else:
+        st.success("✅ Selected: Staging → Production")
+        source_db = "staging"
+        dest_db = "prod"
+    
+    st.divider()
+    
+    # Step 2: Choose scope
+    st.subheader("Step 2️⃣: Choose Migration Scope")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🔴 Missing Rows Only", use_container_width=True, key="scope_missing"):
+            st.session_state.migration_scope = "missing"
+    
+    with col2:
+        if st.button("🟡 Mismatched Rows Only", use_container_width=True, key="scope_mismatched"):
+            st.session_state.migration_scope = "mismatched"
+    
+    with col3:
+        if st.button("🟢 Both", use_container_width=True, key="scope_both"):
+            st.session_state.migration_scope = "both"
+    
+    if 'migration_scope' not in st.session_state:
+        st.info("👈 Select what to migrate to continue")
+        return
+    
+    scope_name = {
+        "missing": "Missing Rows",
+        "mismatched": "Mismatched Rows",
+        "both": "Both Missing & Mismatched Rows"
+    }
+    
+    st.success(f"✅ Selected: {scope_name[st.session_state.migration_scope]}")
+    
+    st.divider()
+    
+    # Step 3: Preview
+    st.subheader("Step 3️⃣: Preview Migration")
+    
+    if st.button("👁️ Preview What Will Be Migrated", use_container_width=True, key="btn_preview"):
+        with st.spinner("Generating preview..."):
+            preview = preview_migration(source_db, dest_db, st.session_state.migration_scope)
+            
+            if preview['status'] == 'success':
+                st.session_state.preview_data = preview
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Missing Rows", preview['missing_rows_count'])
+                
+                with col2:
+                    st.metric("Mismatched Rows", preview['mismatched_rows_count'])
+                
+                with col3:
+                    st.metric("Total to Migrate", preview['total_rows_to_migrate'])
+                
+                st.divider()
+                
+                # Show missing rows preview
+                if preview['missing_rows_count'] > 0:
+                    st.write("**Missing Rows (will be added):**")
+                    missing_df = pd.DataFrame(preview['missing_rows_preview'])
+                    st.dataframe(missing_df, use_container_width=True, hide_index=True)
+                    
+                    if preview['missing_rows_count'] > len(preview['missing_rows_preview']):
+                        st.caption(f"... and {preview['missing_rows_count'] - len(preview['missing_rows_preview'])} more")
+                
+                # Show mismatched rows preview
+                if preview['mismatched_rows_count'] > 0:
+                    st.write("**Mismatched Rows (will be updated):**")
+                    mismatched_df = pd.DataFrame(preview['mismatched_rows_preview'])
+                    st.dataframe(mismatched_df, use_container_width=True, hide_index=True)
+                    
+                    if preview['mismatched_rows_count'] > len(preview['mismatched_rows_preview']):
+                        st.caption(f"... and {preview['mismatched_rows_count'] - len(preview['mismatched_rows_preview'])} more")
+            else:
+                st.error(f"❌ Error generating preview: {preview.get('error', 'Unknown error')}")
+    
+    if 'preview_data' not in st.session_state:
+        st.info("👈 Click 'Preview' to see what will be migrated")
+        return
+    
+    st.divider()
+    
+    # Step 4: Confirm and Execute
+    st.subheader("Step 4️⃣: Execute Migration")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🧪 Dry Run (Test Only)", use_container_width=True, key="btn_dryrun"):
+            st.divider()
+            st.subheader("🧪 Dry Run Preview - How Data Will Look After Migration")
+            
+            # Get current destination data
+            if dest_db == "prod":
+                from tools import _connect_prod
+                dest_conn = _connect_prod()
+            else:
+                from tools import _connect_staging
+                dest_conn = _connect_staging()
+            
+            from tools import _get_all_orders
+            dest_orders = _get_all_orders(dest_conn)
+            dest_conn.close()
+            
+            # Convert to DataFrame
+            dest_list = []
+            for order_id, row in dest_orders.items():
+                dest_list.append({
+                    'order_id': row[0],
+                    'customer_name': row[1],
+                    'amount': float(row[2]) if isinstance(row[2], Decimal) else row[2],
+                    'country': row[3],
+                    'created_at': str(row[4]) if row[4] else None
+                })
+            
+            current_df = pd.DataFrame(dest_list)
+            
+            # Simulate the migration by combining with source data
+            if source_db == 'prod':
+                from tools import _connect_prod
+                source_conn = _connect_prod()
+            else:
+                from tools import _connect_staging
+                source_conn = _connect_staging()
+            
+            source_orders = _get_all_orders(source_conn)
+            source_conn.close()
+            
+            # Create simulated state after migration
+            simulated_list = list(dest_list)  # Start with current
+            
+            for order_id in source_orders:
+                row = source_orders[order_id]
+                new_row = {
+                    'order_id': row[0],
+                    'customer_name': row[1],
+                    'amount': float(row[2]) if isinstance(row[2], Decimal) else row[2],
+                    'country': row[3],
+                    'created_at': str(row[4]) if row[4] else None
+                }
+                
+                # Check if this is missing or mismatched
+                existing = next((x for x in simulated_list if x['order_id'] == order_id), None)
+                
+                if st.session_state.migration_scope in ['missing', 'both']:
+                    # Missing: only add if not exists
+                    if not existing:
+                        simulated_list.append(new_row)
+                
+                if st.session_state.migration_scope in ['mismatched', 'both']:
+                    # Mismatched: update if exists and different
+                    if existing and existing != new_row:
+                        idx = simulated_list.index(existing)
+                        simulated_list[idx] = new_row
+            
+            simulated_df = pd.DataFrame(simulated_list).sort_values('order_id').reset_index(drop=True)
+            
+            # Show comparison
+            col_before, col_after = st.columns(2)
+            
+            with col_before:
+                st.write("**📊 Current State:**")
+                st.dataframe(current_df.sort_values('order_id').reset_index(drop=True), use_container_width=True, height=400)
+                st.caption(f"Total records: {len(current_df)}")
+            
+            with col_after:
+                st.write("**✨ After Migration:**")
+                st.dataframe(simulated_df, use_container_width=True, height=400)
+                st.caption(f"Total records: {len(simulated_df)}")
+            
+            st.divider()
+            
+            # Show changes summary
+            new_records = len(simulated_df) - len(current_df)
+            updated_records = len(st.session_state.preview_data.get('mismatched_rows_preview', []))
+            
+            if new_records > 0:
+                st.success(f"✅ {new_records} new records will be added")
+            if updated_records > 0:
+                st.info(f"ℹ️ {updated_records} records will be updated")
+            
+            st.warning("⚠️ **This is a simulation. No data has been modified.**")
+    
+    with col2:
+        if st.button("⚠️ EXECUTE MIGRATION", use_container_width=True, key="btn_execute"):
+            # Create backup first
+            with st.spinner("💾 Creating backup..."):
+                backup_result = create_backup_snapshot(dest_db)
+                
+                if backup_result['status'] == 'success':
+                    st.session_state.migration_backup_id = backup_result['backup_id']
+                    st.success(f"✅ Backup created: {backup_result['backup_id']}")
+                    
+                    # Execute migration
+                    with st.spinner("🔄 Executing migration..."):
+                        all_success = True
+                        total_migrated = 0
+                        
+                        # Migrate missing rows
+                        if st.session_state.migration_scope in ['missing', 'both']:
+                            missing_result = migrate_missing_rows(
+                                source_db,
+                                dest_db,
+                                st.session_state.migration_backup_id
+                            )
+                            
+                            if missing_result['status'] == 'success':
+                                total_migrated += missing_result['rows_migrated']
+                                st.success(f"✅ Migrated {missing_result['rows_migrated']} missing rows")
+                            else:
+                                all_success = False
+                                st.error(f"❌ Error migrating missing rows: {missing_result['error']}")
+                        
+                        # Migrate mismatched rows
+                        if st.session_state.migration_scope in ['mismatched', 'both']:
+                            mismatched_result = migrate_mismatched_rows(
+                                source_db,
+                                dest_db,
+                                st.session_state.migration_backup_id
+                            )
+                            
+                            if mismatched_result['status'] == 'success':
+                                total_migrated += mismatched_result['rows_migrated']
+                                st.success(f"✅ Migrated {mismatched_result['rows_migrated']} mismatched rows")
+                            else:
+                                all_success = False
+                                st.error(f"❌ Error migrating mismatched rows: {mismatched_result['error']}")
+                        
+                        if all_success:
+                            st.success(f"🎉 Migration completed! {total_migrated} rows migrated.")
+                            st.info(f"💾 Backup ID: {st.session_state.migration_backup_id} (for rollback if needed)")
+                        else:
+                            st.error("❌ Migration encountered errors. Check backup for rollback.")
+                else:
+                    st.error(f"❌ Failed to create backup: {backup_result['error']}")
+    
+    st.divider()
+    
+    # Step 5: Rollback
+    st.subheader("Step 5️⃣: Rollback (if needed)")
+    
+    if st.session_state.migration_backup_id:
+        st.warning(f"⚠️ Backup available: {st.session_state.migration_backup_id}")
+        
+        if st.button("🔙 Rollback to Backup", use_container_width=True, key="btn_rollback"):
+            with st.spinner("⏮️ Rolling back..."):
+                rollback_result = rollback_to_backup(
+                    st.session_state.migration_backup_id,
+                    dest_db
+                )
+                
+                if rollback_result['status'] == 'success':
+                    st.success(f"✅ {rollback_result['message']}")
+                    st.info(f"Records restored: {rollback_result['records_restored']}")
+                else:
+                    st.error(f"❌ Rollback failed: {rollback_result['error']}")
+    else:
+        st.info("ℹ️ No active backup. Complete a migration first to enable rollback.")
+
+
 # Sidebar navigation
 st.sidebar.title("📍 Navigation")
 
 page = st.sidebar.radio(
     "Select Page:",
-    ["📊 Overview", "📋 Detailed Comparison", "🤖 AI Assistant"]
+    ["📊 Overview", "📋 Detailed Comparison", "🤖 AI Assistant", "🔄 Migration"]
 )
 
 st.sidebar.divider()
@@ -625,6 +935,8 @@ elif page == "📋 Detailed Comparison":
     page_detailed_comparison()
 elif page == "🤖 AI Assistant":
     page_ai_assistant()
+elif page == "🔄 Migration":
+    page_migration()
 
 # Footer
 st.divider()

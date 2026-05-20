@@ -8,7 +8,7 @@ It simulates production and staging database environments, detects inconsistenci
 
 ## 🚀 Features
 
-- 🗄️ Synthetic Production & Staging databases (SQLite)
+- 🗄️ PostgreSQL Production & Staging databases with environment-based configuration
 - 📉 Data quality analysis (missing rows, mismatches, quality score)
 - 🤖 AI assistant powered by Ollama (LLaMA3 / Gemma)
 - 🔌 MCP server for tool exposure to external AI clients (Claude Desktop compatible)
@@ -20,14 +20,14 @@ It simulates production and staging database environments, detects inconsistenci
 
 ## 🏗️ Architecture
 
-User Query → Ollama LLM → MCP Tools → SQLite Databases → Analysis Result → AI Explanation
+User Query → Ollama LLM → MCP Tools → PostgreSQL Databases → Analysis Result → AI Explanation
 
 ---
 
 ## 🧰 Tech Stack
 
 - Python 3.11
-- SQLite
+- PostgreSQL 12+
 - Ollama (local LLM runtime)
 - MCP (Model Context Protocol)
 - Streamlit
@@ -64,8 +64,8 @@ User Query → Ollama LLM → MCP Tools → SQLite Databases → Analysis Result
 
 pip install -r requirements.txt
 
-### 2. Create databases
-python db_setup/create_db.py
+### 2. Initialize databases
+python db_setup/init_db.py
 
 ### 3. Run AI agent (Ollama must be running)
 python src/agent.py
@@ -96,8 +96,9 @@ System Status: ⚠️ Needs Attention
 ---
 
 ## 🔮 Future Improvements
-PostgreSQL / real database integration
 Cloud deployment (AWS/Azure)
+Advanced data quality metrics
+ML-based anomaly detection
 Real-time data pipelines
 Multi-user authentication system
 Advanced anomaly detection
