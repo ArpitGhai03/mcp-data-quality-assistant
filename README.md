@@ -2,7 +2,7 @@
 
 An AI-powered data quality and consistency monitoring system built using **MCP (Model Context Protocol)** and **Ollama (local LLMs)**.
 
-It simulates production and staging database environments, detects inconsistencies (missing rows, mismatches, schema differences), and enables natural language analysis through an AI agent with tool-calling capabilities.
+It uses PostgreSQL for production and staging databases, detects data inconsistencies (missing rows, mismatches, data corruption), and enables natural language analysis through an AI agent with tool-calling capabilities via MCP protocol.
 
 ---
 
@@ -60,21 +60,83 @@ User Query → Ollama LLM → MCP Tools → PostgreSQL Databases → Analysis Re
 
 ## 🖥️ How to Run
 
-### 1. Install dependencies
+### Prerequisites
 
-pip install -r requirements.txt
+**1. PostgreSQL Setup**
+```bash
+# Create .env file with your PostgreSQL credentials
+echo "PG_HOST=localhost
+PG_PORT=5432
+PG_USER=postgres
+PG_PASSWORD=your_password
+PROD_DB_NAME=prod
+STAGING_DB_NAME=staging" > .env
 
-### 2. Initialize databases
+# Create the two databases in PostgreSQL
+createdb prod
+createdb staging
+```
+
+**2. Python Environment**
+```bash
+python -m venv venv
+# Windows
+venv\Scripts\activate
+# Linux/Mac
+source venv/bin/activate
+
+pip install -r src/requirements.txt
+```
+
+### Quick Start (Recommended)
+
+```bash
+# Initialize databases (creates tables and seed data)
 python db_setup/init_db.py
 
-### 3. Run AI agent (Ollama must be running)
+# Start everything with automatic orchestration
+python run_app.py
+```
+
+The `run_app.py` launcher automatically:
+- Checks and starts Ollama if not running
+- Launches the Streamlit dashboard on port 8503
+- Opens dashboard in default browser
+- Optionally starts the AI agent
+
+**Options:**
+```bash
+python run_app.py --agent           # Include AI agent
+python run_app.py --no-browser      # Don't auto-open browser
+python run_app.py --agent --no-browser
+```
+
+### Individual Services
+
+**Reset & Reinitialize Databases:**
+```bash
+python db_setup/init_db.py --reset
+```
+
+**CLI Agent:**
+```bash
 python src/agent.py
+```
 
-### 4. Run MCP server
+**MCP Server:**
+```bash
 python src/mcp_server.py
+```
 
-### 5. Launch dashboard
+**CLI Comparison Report:**
+```bash
+python src/compare.py
+```
+
+**Web Dashboard:**
+```bash
 streamlit run src/dashboard.py
+```
 
 ---
 
@@ -95,10 +157,16 @@ System Status: ⚠️ Needs Attention
 
 ---
 
+## � Documentation
+
+For detailed component documentation, see [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)
+
+---
+
 ## 🔮 Future Improvements
-Cloud deployment (AWS/Azure)
-Advanced data quality metrics
-ML-based anomaly detection
+- Cloud deployment (AWS/Azure)
+- Advanced data quality metrics
+- ML-based anomaly detection
 Real-time data pipelines
 Multi-user authentication system
 Advanced anomaly detection
