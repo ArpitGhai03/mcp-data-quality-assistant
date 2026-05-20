@@ -27,34 +27,39 @@ User Query → Ollama LLM → MCP Tools → PostgreSQL Databases → Analysis Re
 ## 🧰 Tech Stack
 
 - Python 3.11
-- PostgreSQL 12+
+- PostgreSQL 12+ (production & staging databases)
+- psycopg2 (PostgreSQL adapter)
 - Ollama (local LLM runtime)
 - MCP (Model Context Protocol)
-- Streamlit
-- Pandas
-- Faker
-- Plotly
+- Streamlit (web dashboard)
+- Plotly (interactive visualizations)
+- Faker (synthetic test data generation)
+- python-dotenv (environment configuration)
 
 ---
 
 
 ## ⚙️ How It Works
 
-1. Synthetic data is generated for production and staging databases
-2. MCP tools analyze data inconsistencies
-3. Ollama LLM receives user query and selects appropriate tools
-4. MCP server executes tools and returns structured results
-5. AI generates human-readable explanations
-6. Streamlit dashboard visualizes results interactively
+1. PostgreSQL databases are initialized with seeded test data (Faker generates realistic fake records)
+2. Production database contains 500 complete records
+3. Staging database contains ~400 records (~20% missing) with ~20% corrupted values to simulate real-world sync issues
+4. MCP tools analyze data inconsistencies between production and staging
+5. Ollama LLM receives user query and selects appropriate tools to execute
+6. MCP server executes tools and returns structured results
+7. AI generates human-readable explanations
+8. Streamlit dashboard visualizes results interactively
 
 ---
 
 ## 💬 Example Queries
 
-- What is the data quality score?
-- Show missing records in staging
-- Why is staging different from production?
-- Generate a full comparison report
+When running the CLI agent or using the dashboard:
+- "What is the data quality score?"
+- "Show missing records in staging"
+- "Why is staging different from production?"
+- "Generate a full comparison report"
+- "How many records match between databases?"
 
 ---
 
@@ -156,7 +161,23 @@ Mismatched Records: 8%
 System Status: ⚠️ Needs Attention
 
 ---
+## 🗄️ Database Management
 
+**Database Initialization:**
+```bash
+# Initialize databases with schema and seed data
+python db_setup/init_db.py
+
+# Reset databases (drops and recreates)
+python db_setup/init_db.py --reset
+```
+
+**Database Migrations:**
+Database schema changes are handled via direct SQL execution in `init_db.py`. To add new tables or columns:
+1. Update the `create_tables()` function in `db_setup/init_db.py`
+2. Run `python db_setup/init_db.py --reset` to apply changes
+
+---
 ## � Documentation
 
 For detailed component documentation, see [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)
@@ -164,9 +185,11 @@ For detailed component documentation, see [PROJECT_SUMMARY.md](PROJECT_SUMMARY.m
 ---
 
 ## 🔮 Future Improvements
+- Alembic-based database migration system
 - Cloud deployment (AWS/Azure)
 - Advanced data quality metrics
 - ML-based anomaly detection
+- Real-time sync monitoring
 Real-time data pipelines
 Multi-user authentication system
 Advanced anomaly detection
