@@ -34,7 +34,7 @@ Ollama LLM (Local)
   ↓
 Tool Selection & Execution
   ↓
-SQLite Databases (Production & Staging)
+PostgreSQL Databases (Production & Staging)
   ↓
 Data Analysis & Comparison
   ↓
@@ -117,8 +117,8 @@ mcp_project/
 - Includes timestamps and all analysis metrics
 
 **Database Operations:**
-- Connects to SQLite databases (PROD_DB and STAGING_DB)
-- Uses `_connect()` for database connections
+- Connects to PostgreSQL databases (PROD_DB and STAGING_DB)
+- Uses `_connect()` for database connections via psycopg2
 - Uses `_get_all_orders()` helper to fetch and index all records by order_id
 - Performs row-by-row comparisons
 
@@ -277,7 +277,7 @@ python db_setup/init_db.py --reset    # Drop and recreate all tables
 **Key Functions:**
 
 #### `connect(db_path)`
-- Establishes SQLite connection
+- Establishes PostgreSQL connection using psycopg2
 
 #### `get_all_orders(conn)`
 - Fetches all orders as dictionary with order_id as key
