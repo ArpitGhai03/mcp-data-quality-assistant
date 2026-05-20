@@ -15,6 +15,7 @@ It uses PostgreSQL for production and staging databases, detects data inconsiste
 - 📊 Streamlit dashboard with interactive visualizations
 - 📄 Automated report generation and export
 - 🧠 Tool-based AI reasoning system (LLM selects and uses tools)
+- 🔄 **Data Migration Tool** with dry-run preview, automatic backups, and rollback capability
 
 ---
 
@@ -146,11 +147,13 @@ streamlit run src/dashboard.py
 ---
 
 ## 🧠 What This Project Demonstrates
-MCP-based tool architecture
-LLM tool-calling systems (agentic AI)
-Data quality engineering concepts
-Multi-interface AI system (CLI + MCP + Web UI)
-End-to-end system design thinking
+
+- MCP-based tool architecture
+- LLM tool-calling systems (agentic AI)
+- Data quality engineering concepts
+- Multi-interface AI system (CLI + MCP + Web UI)
+- Production-grade database migration with safety features (backups, rollback, dry-run)
+- End-to-end system design thinking
 
 ---
 
@@ -161,21 +164,31 @@ Mismatched Records: 8%
 System Status: ⚠️ Needs Attention
 
 ---
-## 🗄️ Database Management
+## 📦 Migration Tool
 
-**Database Initialization:**
+The application includes a powerful **Data Migration Tool** accessible through the Streamlit dashboard with the following features:
+
+**Key Features:**
+- 📋 **Dry Run Preview** - Preview all changes before executing migration
+- 🛡️ **Automatic Backups** - Creates automatic backup snapshots before any migration
+- ⏮️ **Rollback Capability** - Rollback to previous backups if migration fails
+- 🔄 **Bidirectional** - Migrate from Production → Staging or Staging → Production
+- 📊 **Flexible Scope** - Migrate missing rows, mismatched rows, or both
+
+**Migration Workflow:**
+1. **Step 1:** Choose migration direction (Prod→Staging or Staging→Prod)
+2. **Step 2:** Select migration scope (missing rows, mismatched rows, or both)
+3. **Step 3:** Preview migration details and row samples
+4. **Step 4:** Automatic backup is created
+5. **Step 5:** Execute migration
+6. **Step 6:** Rollback available if needed
+
+**Accessing Migration Tool:**
+The migration tool is available in the Streamlit dashboard under the "Data Migration" page. Access via:
 ```bash
-# Initialize databases with schema and seed data
-python db_setup/init_db.py
-
-# Reset databases (drops and recreates)
-python db_setup/init_db.py --reset
+python run_app.py
+# Then navigate to "🔄 Data Migration Tool" in the sidebar
 ```
-
-**Database Migrations:**
-Database schema changes are handled via direct SQL execution in `init_db.py`. To add new tables or columns:
-1. Update the `create_tables()` function in `db_setup/init_db.py`
-2. Run `python db_setup/init_db.py --reset` to apply changes
 
 ---
 ## � Documentation
